@@ -6,3 +6,4 @@ data/*
 files/*
 !files/.gitkeep
 dist/
+dockerEnvironment.env
