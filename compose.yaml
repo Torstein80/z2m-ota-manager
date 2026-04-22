@@ -1,0 +1,17 @@
+services:
+  ota-manager:
+    build:
+      context: .
+    image: z2m-ota-manager:local
+    container_name: z2m-ota-manager
+    restart: unless-stopped
+    ports:
+      - "${OTA_MANAGER_PORT:-8099}:8099"
+    env_file:
+      - .env
+    environment:
+      OTA_MANAGER_DATA_DIR: /data
+      OTA_MANAGER_FILES_DIR: /files
+    volumes:
+      - ./data:/data
+      - ./files:/files
