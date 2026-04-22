@@ -1,0 +1,38 @@
+services:
+  ota-manager:
+    image: ${IMAGE_REF:?Set IMAGE_REF in Portainer}
+    container_name: ${CONTAINER_NAME:-z2m-ota-manager}
+    restart: unless-stopped
+
+    ports:
+      - "${HOST_PORT:-8099}:8099"
+
+    environment:
+      OTA_MANAGER_APP_NAME: Zigbee2MQTT OTA Manager
+      OTA_MANAGER_BIND: 0.0.0.0
+      OTA_MANAGER_PORT: 8099
+      OTA_MANAGER_DATA_DIR: /data
+      OTA_MANAGER_FILES_DIR: /files
+      OTA_MANAGER_PUBLIC_BASE_URL: ${OTA_MANAGER_PUBLIC_BASE_URL:-}
+      OTA_MANAGER_USERNAME: ${OTA_MANAGER_USERNAME:-admin}
+      OTA_MANAGER_PASSWORD: ${OTA_MANAGER_PASSWORD:?Set OTA_MANAGER_PASSWORD in Portainer}
+      OTA_MANAGER_SECRET_KEY: ${OTA_MANAGER_SECRET_KEY:?Set OTA_MANAGER_SECRET_KEY in Portainer}
+      OTA_MANAGER_MAX_CONTENT_LENGTH: ${OTA_MANAGER_MAX_CONTENT_LENGTH:-16777216}
+      OTA_MANAGER_TRUST_PROXY: ${OTA_MANAGER_TRUST_PROXY:-0}
+
+    volumes:
+      - ${OTA_MANAGER_DATA_PATH:?Set OTA_MANAGER_DATA_PATH in Portainer}:/data
+      - ${OTA_MANAGER_FILES_PATH:?Set OTA_MANAGER_FILES_PATH in Portainer}:/files
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8099/health', timeout=5)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-10m}
+        max-file: ${LOG_MAX_FILE:-3}

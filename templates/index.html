@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card grid-two">
+  <div>
+    <h2>Upload OTA image</h2>
+    <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" class="stack">
+      <label>
+        <span>OTA file</span>
+        <input type="file" name="file" accept=".ota,.zigbee,.bin" required>
+      </label>
+      <label>
+        <span>Notes</span>
+        <textarea name="notes" rows="3" placeholder="Optional release notes"></textarea>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" name="force">
+        <span>Force update</span>
+      </label>
+      <button class="button" type="submit">Upload</button>
+    </form>
+  </div>
+  <div>
+    <h2>Connection details</h2>
+    <dl class="meta-grid">
+      <dt>Index URL</dt>
+      <dd><code>{{ index_url }}</code></dd>
+      <dt>Public base URL</dt>
+      <dd><code>{{ public_base_url }}</code></dd>
+      <dt>Max upload size</dt>
+      <dd>{{ max_size_mb }} MB</dd>
+      <dt>Login</dt>
+      <dd>{% if login_required %}enabled{% else %}disabled{% endif %}</dd>
+    </dl>
+    <p class="muted">Point Zigbee2MQTT at the index URL in <code>configuration.yaml</code>.</p>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Firmware groups</h2>
+  {% if groups %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Manufacturer</th>
+            <th>Image Type</th>
+            <th>Latest Version</th>
+            <th>Count</th>
+            <th>Header Name</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for group in groups %}
+          <tr>
+            <td><code>{{ group.manufacturerHex }}</code></td>
+            <td><code>{{ group.imageTypeHex }}</code></td>
+            <td><code>{{ group.latest.fileVersion|hexval }}</code></td>
+            <td>{{ group.count }}</td>
+            <td>{{ group.latest.otaHeaderString }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No OTA files uploaded yet.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>All firmware files</h2>
+  {% if entries %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Manufacturer</th>
+            <th>Image Type</th>
+            <th>File Version</th>
+            <th>HW Range</th>
+            <th>Size</th>
+            <th>Uploaded</th>
+            <th>Force</th>
+            <th>Notes</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in entries %}
+          <tr>
+            <td><a href="{{ url_for('files', filename=entry.filename) }}">{{ entry.filename }}</a></td>
+            <td><code>{{ entry.manufacturerCode|hexval }}</code></td>
+            <td><code>{{ entry.imageType|hexval }}</code></td>
+            <td><code>{{ entry.fileVersion|hexval }}</code></td>
+            <td>
+              {% if entry.minimumHardwareVersion is not none or entry.maximumHardwareVersion is not none %}
+                <code>{{ entry.minimumHardwareVersion if entry.minimumHardwareVersion is not none else '-' }}</code>
+                -
+                <code>{{ entry.maximumHardwareVersion if entry.maximumHardwareVersion is not none else '-' }}</code>
+              {% else %}
+                <span class="muted">Any</span>
+              {% endif %}
+            </td>
+            <td>{{ entry.fileSize|filesize }}</td>
+            <td>{{ entry.uploadedAt|dt }}</td>
+            <td>{{ 'Yes' if entry.force else 'No' }}</td>
+            <td>{{ entry.notes or '-' }}</td>
+            <td>
+              <div class="action-row">
+                <form method="post" action="{{ url_for('toggle_force', filename=entry.filename) }}">
+                  <button class="button secondary small" type="submit">Toggle force</button>
+                </form>
+                <form method="post" action="{{ url_for('delete_entry', filename=entry.filename) }}" onsubmit="return confirm('Delete {{ entry.filename }}?');">
+                  <button class="button danger small" type="submit">Delete</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No OTA files uploaded yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
