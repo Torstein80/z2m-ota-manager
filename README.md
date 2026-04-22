@@ -8,15 +8,28 @@ It provides:
 - automatic parsing of Zigbee OTA headers
 - a Zigbee2MQTT-compatible override index at `/api/index.json`
 - local login for the admin UI
-- two deployment paths:
-  - local build with Docker Compose
-  - GitHub Actions build to GitHub Container Registry (GHCR) for pull-only deployment hosts
+- a pull-only deployment path for Portainer and Docker hosts
 
-## Why this layout
+## What this is for
 
-Zigbee2MQTT supports a remote OTA override index via `ota.zigbee_ota_override_index_location`, including URLs served over HTTP(S).
+This app is meant to be the place where you upload your custom Zigbee OTA files.
 
-That means you can run this app anywhere reachable by your Zigbee2MQTT instance, upload OTA images through the UI, and let Zigbee2MQTT fetch the generated `index.json` plus the firmware files it references. Hosted OTA entries need `url`, `manufacturerCode`, `imageType`, and `fileVersion`, which this app extracts from the OTA header and emits automatically.
+Zigbee2MQTT can then fetch:
+
+- the generated OTA index from `/api/index.json`
+- the hosted firmware files from `/files/...`
+
+That lets you keep Zigbee2MQTT on one host and run this OTA Manager somewhere else on your LAN.
+
+## Recommended first implementation
+
+For a first deployment, use this layout:
+
+- Zigbee2MQTT stays where it already runs
+- this OTA Manager runs as a Portainer stack on your Docker host or Docker-enabled LXC
+- Zigbee2MQTT points to this app with `ota.zigbee_ota_override_index_location`
+
+This is the simplest setup because the app only needs to serve HTTP on your LAN.
 
 ## Project layout
 
@@ -35,197 +48,215 @@ That means you can run this app anywhere reachable by your Zigbee2MQTT instance,
 └── files/
 ```
 
-`compose.yaml` is the local build file.
+Use these files for deployment:
 
-`compose.ghcr.yaml` is the deployment file for hosts that should only pull a published image from GHCR.
+- `compose.ghcr.yaml` for Portainer or a pull-only Docker host
+- `.env.example` as the starting point for your `.env`
 
 ## Requirements
 
-- Docker with the Compose plugin installed
-- a Zigbee2MQTT instance running somewhere on your network
-- a GitHub repository if you want automatic image publishing
+You need:
 
-## 1) Local development or LAN-only deployment
+- a Zigbee2MQTT instance already running on your network
+- a Docker host or Docker-enabled LXC for Portainer
+- a published image in GHCR, for example `ghcr.io/<your-user>/zigbee-ota-manager:latest`
 
-Clone the repository, then create your environment file:
+## First Portainer deployment
 
-```bash
-cp .env.example .env
-```
+### 1) Create persistent folders on the Docker host
 
-Edit `.env` and set at least:
-
-```env
-OTA_MANAGER_USERNAME=admin
-OTA_MANAGER_PASSWORD=change-this-password
-OTA_MANAGER_SECRET_KEY=replace-with-a-random-secret-key
-OTA_MANAGER_PUBLIC_BASE_URL=
-```
-
-Leave `OTA_MANAGER_PUBLIC_BASE_URL` empty if you want the app to derive its base URL from the current request automatically. Set it only if you want a fixed hostname or a reverse-proxy URL.
-
-Build and start locally:
-
-```bash
-docker compose up --build -d
-```
-
-Open the UI in your browser:
-
-```text
-http://YOUR-HOSTNAME-OR-IP:8099
-```
-
-The app exposes a health endpoint at:
-
-```text
-http://YOUR-HOSTNAME-OR-IP:8099/health
-```
-
-## 2) Push to GitHub and publish images to GHCR
-
-Create a GitHub repository and upload the project.
-
-The included workflow in `.github/workflows/publish-ghcr.yml` will:
-
-- run on pushes to `main`
-- log in to `ghcr.io`
-- build the container image
-- publish both:
-  - `latest`
-  - `sha-<commit>`
-
-### Optional: make the container package public
-
-If you want your deployment host to pull the image without a registry login, make the GHCR package public.
-
-If you keep the package private, the deployment host will need `docker login ghcr.io` with a token that has package read access.
-
-## 3) Pull-only deployment on a Docker host or LXC
-
-On the deployment host, copy only these files:
-
-- `compose.ghcr.yaml`
-- `.env` based on `.env.example`
-
-Then set your deployment values in `.env`, for example:
-
-```env
-IMAGE_NAME=ghcr.io/your-account/your-repository
-CONTAINER_NAME=z2m-ota-manager
-OTA_MANAGER_PORT=8099
-OTA_MANAGER_DATA_PATH=/srv/ota-manager/data
-OTA_MANAGER_FILES_PATH=/srv/ota-manager/files
-OTA_MANAGER_USERNAME=admin
-OTA_MANAGER_PASSWORD=change-this-password
-OTA_MANAGER_SECRET_KEY=replace-with-a-random-secret-key
-OTA_MANAGER_PUBLIC_BASE_URL=
-```
-
-Create the bind-mount directories:
+On the Docker host or LXC where Portainer runs:
 
 ```bash
 mkdir -p /srv/ota-manager/data
 mkdir -p /srv/ota-manager/files
+mkdir -p /opt/stacks/zigbee-ota-manager
 ```
 
-Start the service:
+These folders are used for:
 
-```bash
-docker compose -f compose.ghcr.yaml pull
-docker compose -f compose.ghcr.yaml up -d
+- `/srv/ota-manager/data` → app metadata such as the catalog
+- `/srv/ota-manager/files` → uploaded OTA images
+- `/opt/stacks/zigbee-ota-manager` → your stack files
+
+### 2) Create the environment file
+
+Copy `.env.example` to `.env` and edit it.
+
+Example:
+
+```env
+# Application
+OTA_MANAGER_APP_NAME=Zigbee2MQTT OTA Manager
+OTA_MANAGER_PORT=8099
+OTA_MANAGER_BIND=0.0.0.0
+OTA_MANAGER_PUBLIC_BASE_URL=
+
+# Login
+OTA_MANAGER_USERNAME=admin
+OTA_MANAGER_PASSWORD=change-this-password
+OTA_MANAGER_SECRET_KEY=replace-with-a-random-secret-key
+
+# Optional
+OTA_MANAGER_MAX_CONTENT_LENGTH=16777216
+OTA_MANAGER_TRUST_PROXY=0
+
+# Deployment-only variables for compose.ghcr.yaml
+IMAGE_NAME=ghcr.io/your-account/zigbee-ota-manager
+CONTAINER_NAME=z2m-ota-manager
+OTA_MANAGER_DATA_PATH=/srv/ota-manager/data
+OTA_MANAGER_FILES_PATH=/srv/ota-manager/files
 ```
 
-To update later after pushing new code to `main`:
+Notes:
 
-```bash
-docker compose -f compose.ghcr.yaml pull
-docker compose -f compose.ghcr.yaml up -d
+- Leave `OTA_MANAGER_PUBLIC_BASE_URL` empty for a simple LAN-only setup.
+- Set `IMAGE_NAME` to the GHCR image you want Portainer to pull.
+- Use a long random value for `OTA_MANAGER_SECRET_KEY`.
+
+### 3) Create the Portainer stack
+
+In Portainer:
+
+1. Go to **Stacks**
+2. Click **Add stack**
+3. Name it something like `zigbee-ota-manager`
+4. Paste the contents of `compose.ghcr.yaml`
+5. Either:
+   - paste the values from your `.env` into Portainer environment variables, or
+   - place the `.env` file beside the compose file on the host and deploy from that location
+
+The stack file is:
+
+```yaml
+services:
+  ota-manager:
+    image: ${IMAGE_NAME:-ghcr.io/example-owner/example-repo}:latest
+    container_name: ${CONTAINER_NAME:-z2m-ota-manager}
+    restart: unless-stopped
+    ports:
+      - "${OTA_MANAGER_PORT:-8099}:8099"
+    env_file:
+      - .env
+    environment:
+      OTA_MANAGER_DATA_DIR: /data
+      OTA_MANAGER_FILES_DIR: /files
+    volumes:
+      - ${OTA_MANAGER_DATA_PATH:-/srv/ota-manager/data}:/data
+      - ${OTA_MANAGER_FILES_PATH:-/srv/ota-manager/files}:/files
 ```
 
-## 4) Zigbee2MQTT configuration
+### 4) Deploy and test
 
-In your Zigbee2MQTT `configuration.yaml`, point the OTA override index to this app:
+After Portainer deploys the stack, open the app in your browser:
+
+```text
+http://YOUR-DOCKER-HOST:8099
+```
+
+Health endpoint:
+
+```text
+http://YOUR-DOCKER-HOST:8099/health
+```
+
+If the app is running, sign in and make sure the UI loads.
+
+## Zigbee2MQTT configuration
+
+In your Zigbee2MQTT `configuration.yaml`, add:
 
 ```yaml
 ota:
-  zigbee_ota_override_index_location: http://YOUR-HOSTNAME-OR-IP:8099/api/index.json
+  zigbee_ota_override_index_location: http://YOUR-DOCKER-HOST:8099/api/index.json
   disable_automatic_update_check: false
   update_check_interval: 1440
 ```
 
-If your app is exposed through a reverse proxy or hostname, use that URL instead:
+Then restart Zigbee2MQTT.
 
-```yaml
-ota:
-  zigbee_ota_override_index_location: https://ota.example.invalid/api/index.json
+For a LAN-only setup, plain HTTP is fine.
+
+## First OTA upload flow
+
+1. Build your Zigbee OTA image.
+2. Open the OTA Manager web UI.
+3. Sign in.
+4. Upload the OTA file.
+5. The app parses the OTA header and updates the catalog.
+6. Zigbee2MQTT can now see the image at `/api/index.json`.
+
+## Updating the container later
+
+When you publish a newer image to GHCR, update the Portainer stack by pulling the latest image and redeploying.
+
+Typical flow:
+
+1. Open the stack in Portainer
+2. Click **Pull and redeploy** if available, or redeploy the stack after pulling the latest image
+
+If you prefer the CLI on the Docker host:
+
+```bash
+docker compose -f compose.ghcr.yaml pull
+docker compose -f compose.ghcr.yaml up -d
 ```
-
-## 5) Upload flow
-
-1. Build your firmware OTA image.
-2. Sign in to the web UI.
-3. Upload the OTA image.
-4. The app parses the header and adds the image to the generated index.
-5. Zigbee2MQTT sees the image on the next OTA check.
-
-## Security notes
-
-- The admin UI is protected by a basic app login if `OTA_MANAGER_PASSWORD` is set.
-- `/api/index.json` and `/files/...` stay publicly readable by design so Zigbee2MQTT can fetch them.
-- For LAN-only use, keep the service on your local network.
-- If you later publish it behind a reverse proxy, consider protecting only the UI routes and leaving the machine-consumed endpoints reachable without interactive login.
 
 ## Backups
 
-Back up these directories on the deployment host:
+Back up these folders on the Docker host:
 
-- `data/`
-- `files/`
+- `/srv/ota-manager/data`
+- `/srv/ota-manager/files`
 
-`data/catalog.json` keeps the app’s metadata, while `files/` contains the actual OTA images.
+These contain:
 
-## Notes for VS Code
+- the generated catalog and metadata
+- the uploaded OTA firmware files
 
-Recommended extensions are listed in `.vscode/extensions.json`:
+## Security notes
 
-- Python
-- Container Tools
+For LAN-only use:
 
-## Suggested first commit flow
-
-```bash
-git init
-git add .
-git commit -m "Initial OTA manager import"
-git branch -M main
-git remote add origin https://github.com/your-account/your-repository.git
-git push -u origin main
-```
-
-Once the first push completes, the workflow will publish the container image to GHCR.
+- keep the service on your local network
+- use a strong app password
+- do not expose Portainer to the internet
+- do not forward port `8099` on your router
 
 ## Troubleshooting
 
 ### `env file .env not found`
-Create it first:
+
+Create the file first from the example:
 
 ```bash
 cp .env.example .env
 ```
 
-### `docker compose pull` asks for login
-Your GHCR package is probably private. Either:
+### Portainer cannot pull the image
 
-- make the package public, or
-- run `docker login ghcr.io` on the deployment host with a token that can read packages.
+Check:
+
+- the GHCR image name in `IMAGE_NAME`
+- whether the image is public
+- whether Portainer or the Docker host needs `docker login ghcr.io`
 
 ### Uploaded file is rejected
-This app expects a Zigbee OTA image with the standard OTA header (`0x0BEEF11E`). A raw firmware `.bin` without a Zigbee OTA wrapper will be rejected.
 
-## Customization ideas
+This app expects a Zigbee OTA image with the standard OTA header (`0x0BEEF11E`).
+A raw firmware `.bin` file without a Zigbee OTA wrapper will be rejected.
 
-- split the admin UI and the public file/index endpoints behind different auth policies
-- add release notes per firmware file
-- add hardware-version filtering in your upload workflow
-- add per-device views or JSON export endpoints
+## Optional next steps
+
+Once the first deployment works, you can later add:
+
+- a reverse proxy
+- HTTPS
+- a public hostname
+- stronger access control for the admin UI
+
+But for the first implementation, the simplest approach is:
+
+- Portainer stack
+- LAN-only access
+- Zigbee2MQTT pointing to `http://YOUR-DOCKER-HOST:8099/api/index.json`
